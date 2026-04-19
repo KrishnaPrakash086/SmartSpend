@@ -1,9 +1,8 @@
-# REST endpoints for expense listing, creation, and deletion
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.models import Expense
 from app.schemas import ExpenseCreate, ExpenseResponse, ExpenseUpdate
 from app.services import expense_service
@@ -11,7 +10,6 @@ from app.services import expense_service
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
 
 
-# Manual serialization needed because ORM Numeric/Date types require explicit float()/isoformat() conversion
 def _serialize_expense(expense: Expense) -> ExpenseResponse:
     return ExpenseResponse(
         id=expense.id,
@@ -31,6 +29,7 @@ def _serialize_expense(expense: Expense) -> ExpenseResponse:
 @router.get("/", response_model=list[ExpenseResponse])
 async def list_expenses(
     session: DatabaseSession,
+    user_id: RequiredUserId,
     search: Optional[str] = None,
     category: Optional[str] = None,
     date_from: Optional[str] = None,
@@ -38,6 +37,7 @@ async def list_expenses(
 ):
     expense_records = await expense_service.list_expenses(
         session,
+        user_id=user_id,
         search=search,
         category=category,
         date_from=date_from,
@@ -49,17 +49,13 @@ async def list_expenses(
 @router.post(
     "/", response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED
 )
-async def create_expense(data: ExpenseCreate, session: DatabaseSession):
-    expense = await expense_service.create_expense(session, data)
+async def create_expense(data: ExpenseCreate, session: DatabaseSession, user_id: RequiredUserId):
+    expense = await expense_service.create_expense(session, data, user_id)
     return _serialize_expense(expense)
 
 
 @router.post("/split", status_code=status.HTTP_201_CREATED)
-async def create_split_expense(body: dict, session: DatabaseSession):
-    """Create multiple linked expenses from a split transaction.
-    Body: { description, total_amount, date, payment_method, added_via, splits: [{category, amount}] }
-    Validates that split amounts sum to total_amount.
-    """
+async def create_split_expense(body: dict, session: DatabaseSession, user_id: RequiredUserId):
     import uuid as _uuid
     description = body.get("description", "")
     total_amount = body.get("total_amount", 0)
@@ -92,7 +88,7 @@ async def create_split_expense(body: dict, session: DatabaseSession):
             group_id=group_id,
             group_description=description,
         )
-        expense = await expense_service.create_expense(session, split_data)
+        expense = await expense_service.create_expense(session, split_data, user_id)
         created_expenses.append(_serialize_expense(expense))
 
     return {"group_id": group_id, "expenses": created_expenses, "total": total_amount}
@@ -100,7 +96,7 @@ async def create_split_expense(body: dict, session: DatabaseSession):
 
 @router.patch("/{expense_id}", response_model=ExpenseResponse)
 async def update_expense(
-    expense_id: str, data: ExpenseUpdate, session: DatabaseSession
+    expense_id: str, data: ExpenseUpdate, session: DatabaseSession, user_id: RequiredUserId
 ):
     from datetime import date as _date
 
@@ -125,22 +121,19 @@ async def update_expense(
 
     await session.flush()
 
-    # If amount or category changed, adjust the affected budgets
     from sqlalchemy import select as _select
     from app.models import Budget
 
     if "amount" in update_fields or "category" in update_fields:
-        # Subtract old amount from old category budget
         old_budget_result = await session.execute(
-            _select(Budget).where(Budget.category == old_category)
+            _select(Budget).where(Budget.category == old_category, Budget.user_id == user_id)
         )
         old_budget = old_budget_result.scalar_one_or_none()
         if old_budget:
             old_budget.spent_amount = max(0, float(old_budget.spent_amount) - old_amount)
 
-        # Add new amount to new category budget
         new_budget_result = await session.execute(
-            _select(Budget).where(Budget.category == existing.category)
+            _select(Budget).where(Budget.category == existing.category, Budget.user_id == user_id)
         )
         new_budget = new_budget_result.scalar_one_or_none()
         if new_budget:
@@ -153,8 +146,8 @@ async def update_expense(
 
 
 @router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_expense(expense_id: str, session: DatabaseSession):
-    deleted = await expense_service.delete_expense(session, expense_id)
+async def delete_expense(expense_id: str, session: DatabaseSession, user_id: RequiredUserId):
+    deleted = await expense_service.delete_expense(session, expense_id, user_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

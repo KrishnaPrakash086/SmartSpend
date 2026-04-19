@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.models import Budget
 from app.schemas import BudgetResponse, BudgetUpdate
 from app.services import budget_service
@@ -20,14 +20,14 @@ def _serialize_budget(budget: Budget) -> BudgetResponse:
 
 
 @router.get("/", response_model=list[BudgetResponse])
-async def list_budgets(session: DatabaseSession):
-    budget_records = await budget_service.list_budgets(session)
+async def list_budgets(session: DatabaseSession, user_id: RequiredUserId):
+    budget_records = await budget_service.list_budgets(session, user_id)
     return [_serialize_budget(budget) for budget in budget_records]
 
 
 @router.patch("/{budget_id}", response_model=BudgetResponse)
 async def update_budget(
-    budget_id: str, data: BudgetUpdate, session: DatabaseSession
+    budget_id: str, data: BudgetUpdate, session: DatabaseSession, user_id: RequiredUserId
 ):
     budget = await budget_service.update_budget_limit(
         session, budget_id, data.limit_amount

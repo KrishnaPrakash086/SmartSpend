@@ -1,4 +1,3 @@
-# Financial instrument service — credit card/loan CRUD and health flag generation for the dashboard
 from datetime import date
 
 from fastapi import HTTPException
@@ -9,13 +8,15 @@ from app.models import CreditCard, Expense, Loan
 from app.schemas import CreditCardCreate, CreditCardUpdate, LoanCreate, LoanUpdate
 
 
-async def list_credit_cards(session: AsyncSession) -> list[CreditCard]:
-    result = await session.execute(select(CreditCard))
+async def list_credit_cards(session: AsyncSession, user_id: str) -> list[CreditCard]:
+    result = await session.execute(
+        select(CreditCard).where(CreditCard.user_id == user_id)
+    )
     return list(result.scalars().all())
 
 
 async def create_credit_card(
-    session: AsyncSession, data: CreditCardCreate
+    session: AsyncSession, data: CreditCardCreate, user_id: str
 ) -> CreditCard:
     card = CreditCard(
         bank_name=data.bank_name,
@@ -28,6 +29,7 @@ async def create_credit_card(
         apr=data.apr,
         rewards_rate=data.rewards_rate,
         min_payment=data.min_payment,
+        user_id=user_id,
     )
     session.add(card)
     await session.flush()
@@ -36,10 +38,10 @@ async def create_credit_card(
 
 
 async def update_credit_card(
-    session: AsyncSession, card_id: str, data: CreditCardUpdate
+    session: AsyncSession, card_id: str, data: CreditCardUpdate, user_id: str
 ) -> CreditCard:
     result = await session.execute(
-        select(CreditCard).where(CreditCard.id == card_id)
+        select(CreditCard).where(CreditCard.id == card_id, CreditCard.user_id == user_id)
     )
     card = result.scalar_one_or_none()
     if not card:
@@ -54,12 +56,14 @@ async def update_credit_card(
     return card
 
 
-async def list_loans(session: AsyncSession) -> list[Loan]:
-    result = await session.execute(select(Loan))
+async def list_loans(session: AsyncSession, user_id: str) -> list[Loan]:
+    result = await session.execute(
+        select(Loan).where(Loan.user_id == user_id)
+    )
     return list(result.scalars().all())
 
 
-async def create_loan(session: AsyncSession, data: LoanCreate) -> Loan:
+async def create_loan(session: AsyncSession, data: LoanCreate, user_id: str) -> Loan:
     loan = Loan(
         loan_type=data.loan_type,
         bank_name=data.bank_name,
@@ -71,6 +75,7 @@ async def create_loan(session: AsyncSession, data: LoanCreate) -> Loan:
         remaining_months=data.remaining_months,
         start_date=data.start_date,
         payment_method=data.payment_method,
+        user_id=user_id,
     )
     session.add(loan)
     await session.flush()
@@ -79,10 +84,10 @@ async def create_loan(session: AsyncSession, data: LoanCreate) -> Loan:
 
 
 async def update_loan(
-    session: AsyncSession, loan_id: str, data: LoanUpdate
+    session: AsyncSession, loan_id: str, data: LoanUpdate, user_id: str
 ) -> Loan:
     result = await session.execute(
-        select(Loan).where(Loan.id == loan_id)
+        select(Loan).where(Loan.id == loan_id, Loan.user_id == user_id)
     )
     loan = result.scalar_one_or_none()
     if not loan:
@@ -97,20 +102,24 @@ async def update_loan(
     return loan
 
 
-# Flag logic mirrors the frontend FinancialFlags component so server and client produce identical alerts
 async def generate_financial_flags(
-    session: AsyncSession, monthly_income: float
+    session: AsyncSession, monthly_income: float, user_id: str
 ) -> list[dict]:
-    cards_result = await session.execute(select(CreditCard))
+    cards_result = await session.execute(
+        select(CreditCard).where(CreditCard.user_id == user_id)
+    )
     credit_cards = list(cards_result.scalars().all())
 
-    loans_result = await session.execute(select(Loan))
+    loans_result = await session.execute(
+        select(Loan).where(Loan.user_id == user_id)
+    )
     loans = list(loans_result.scalars().all())
 
     current_month_start = date.today().replace(day=1)
     expenses_result = await session.execute(
         select(func.coalesce(func.sum(Expense.amount), 0)).where(
-            Expense.date >= current_month_start
+            Expense.date >= current_month_start,
+            Expense.user_id == user_id,
         )
     )
     total_expenses = float(expenses_result.scalar())

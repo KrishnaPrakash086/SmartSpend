@@ -1,4 +1,3 @@
-# Expense CRUD service — handles creation, deletion, and budget cascade side-effects
 from datetime import date as date_type
 
 from fastapi import HTTPException
@@ -9,7 +8,6 @@ from app.models import Budget, Expense
 from app.schemas import ExpenseCreate
 
 
-# Tolerant date parser that returns None instead of raising on malformed input from voice/chat agents
 def _parse_date_safe(date_string: str) -> date_type | None:
     try:
         return date_type.fromisoformat(date_string)
@@ -19,6 +17,7 @@ def _parse_date_safe(date_string: str) -> date_type | None:
 
 async def list_expenses(
     session: AsyncSession,
+    user_id: str,
     search: str | None = None,
     category: str | None = None,
     date_from: str | None = None,
@@ -26,7 +25,7 @@ async def list_expenses(
     page: int = 1,
     per_page: int = 50,
 ) -> list[Expense]:
-    query = select(Expense)
+    query = select(Expense).where(Expense.user_id == user_id)
 
     if search:
         query = query.where(Expense.description.ilike(f"%{search}%"))
@@ -52,7 +51,7 @@ async def list_expenses(
     return list(result.scalars().all())
 
 
-async def create_expense(session: AsyncSession, data: ExpenseCreate) -> Expense:
+async def create_expense(session: AsyncSession, data: ExpenseCreate, user_id: str) -> Expense:
     parsed_date = _parse_date_safe(data.date)
     if not parsed_date:
         raise HTTPException(status_code=422, detail=f"Invalid date format: '{data.date}'. Expected YYYY-MM-DD.")
@@ -67,13 +66,13 @@ async def create_expense(session: AsyncSession, data: ExpenseCreate) -> Expense:
         notes=data.notes,
         group_id=getattr(data, "group_id", None),
         group_description=getattr(data, "group_description", None),
+        user_id=user_id,
     )
     session.add(expense)
     await session.flush()
 
-    # Cascade: increment the matching category budget's spent_amount in the same transaction
     budget_result = await session.execute(
-        select(Budget).where(Budget.category == data.category)
+        select(Budget).where(Budget.category == data.category, Budget.user_id == user_id)
     )
     budget = budget_result.scalar_one_or_none()
     if budget:
@@ -84,14 +83,15 @@ async def create_expense(session: AsyncSession, data: ExpenseCreate) -> Expense:
     return expense
 
 
-async def delete_expense(session: AsyncSession, expense_id: str) -> bool:
+async def delete_expense(session: AsyncSession, expense_id: str, user_id: str) -> bool:
     expense = await get_expense_by_id(session, expense_id)
     if not expense:
         return False
+    if expense.user_id and expense.user_id != user_id:
+        return False
 
-    # Cascade: decrement budget spent_amount on deletion, clamped to zero to prevent negative drift
     budget_result = await session.execute(
-        select(Budget).where(Budget.category == expense.category)
+        select(Budget).where(Budget.category == expense.category, Budget.user_id == user_id)
     )
     budget = budget_result.scalar_one_or_none()
     if budget:

@@ -1,4 +1,3 @@
-# Chat router — orchestrates multi-agent pipeline and A2UI entity confirmation flows
 import uuid
 import time
 from datetime import date
@@ -13,7 +12,7 @@ from app.agents import (
     CoordinatorAgent,
     ReportCrewAgent,
 )
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.events.sse import event_manager
 from app.models import AgentActivity, Budget, CreditCard, Expense, Loan, VoiceInteraction, WebhookEvent
 from app.schemas import ExpenseCreate
@@ -30,7 +29,6 @@ from app.services.expense_service import create_expense
 
 logger = structlog.get_logger()
 
-# Singleton coordinator — initialized once, reused across all requests to avoid .md reload and LLM retry per request
 _cached_coordinator: CoordinatorAgent | None = None
 
 
@@ -70,7 +68,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 @router.post("/", response_model=ChatResponse)
-async def process_chat_message(request: ChatRequest, session: DatabaseSession):
+async def process_chat_message(request: ChatRequest, session: DatabaseSession, user_id: RequiredUserId):
     coordinator = _get_coordinator()
     result = await coordinator.process_message(
         request.message, {"context_id": request.context_id}, session=session
@@ -92,17 +90,18 @@ async def process_chat_message(request: ChatRequest, session: DatabaseSession):
             action=trace.get("action", ""),
             details=trace,
             duration_ms=trace.get("duration_ms", 0),
+            user_id=user_id,
         )
         session.add(activity)
 
     if request.source == "voice":
-        # Status is "success" whenever the agent produced a useful response — not just for expense intent
         voice_status = "success" if result.get("content") else "failed"
         voice_interaction = VoiceInteraction(
             transcript=request.message,
             parsed_result=result.get("parsed_expense") or {},
             status=voice_status,
             result_description=(result.get("content", ""))[:500],
+            user_id=user_id,
         )
         session.add(voice_interaction)
 
@@ -124,7 +123,7 @@ async def process_chat_message(request: ChatRequest, session: DatabaseSession):
 
 
 @router.post("/confirm")
-async def confirm_expense(request: ConfirmExpenseRequest, session: DatabaseSession):
+async def confirm_expense(request: ConfirmExpenseRequest, session: DatabaseSession, user_id: RequiredUserId):
     expense_data = ExpenseCreate(
         description=request.parsed_expense.description,
         amount=request.parsed_expense.amount,
@@ -132,7 +131,7 @@ async def confirm_expense(request: ConfirmExpenseRequest, session: DatabaseSessi
         date=request.parsed_expense.date,
         payment_method=request.parsed_expense.payment_method,
     )
-    expense = await create_expense(session, expense_data)
+    expense = await create_expense(session, expense_data, user_id)
 
     activity = AgentActivity(
         agent_name="Coordinator (ADK)",
@@ -140,6 +139,7 @@ async def confirm_expense(request: ConfirmExpenseRequest, session: DatabaseSessi
         action=f"Confirmed and created expense: {expense.description}",
         details={"expense_id": expense.id, "amount": float(expense.amount)},
         duration_ms=0,
+        user_id=user_id,
     )
     session.add(activity)
 
@@ -172,8 +172,7 @@ async def confirm_expense(request: ConfirmExpenseRequest, session: DatabaseSessi
 
 
 @router.post("/confirm-bulk")
-async def confirm_bulk_expenses(body: dict, session: DatabaseSession):
-    """Confirm and save multiple expenses at once (from multi-expense detection)."""
+async def confirm_bulk_expenses(body: dict, session: DatabaseSession, user_id: RequiredUserId):
     expenses_data = body.get("expenses", [])
     if not expenses_data:
         raise HTTPException(status_code=422, detail="No expenses provided")
@@ -187,7 +186,7 @@ async def confirm_bulk_expenses(body: dict, session: DatabaseSession):
             date=exp.get("date", ""),
             payment_method=exp.get("payment_method", "Cash"),
         )
-        expense = await create_expense(session, expense_data)
+        expense = await create_expense(session, expense_data, user_id)
         created.append({
             "id": expense.id,
             "description": expense.description,
@@ -202,6 +201,7 @@ async def confirm_bulk_expenses(body: dict, session: DatabaseSession):
             action=f"Bulk-confirmed expense: {expense.description}",
             details={"expense_id": expense.id, "amount": float(expense.amount)},
             duration_ms=0,
+            user_id=user_id,
         ))
 
     await event_manager.publish("expenses.bulk_created", {"count": len(created)})
@@ -209,7 +209,7 @@ async def confirm_bulk_expenses(body: dict, session: DatabaseSession):
 
 
 @router.post("/confirm-card")
-async def confirm_card(request: ConfirmCardRequest, session: DatabaseSession):
+async def confirm_card(request: ConfirmCardRequest, session: DatabaseSession, user_id: RequiredUserId):
     card = CreditCard(
         bank_name=request.parsed_card.bank_name or "",
         card_name=request.parsed_card.card_name or "",
@@ -221,6 +221,7 @@ async def confirm_card(request: ConfirmCardRequest, session: DatabaseSession):
         apr=request.parsed_card.apr or 0,
         rewards_rate=request.parsed_card.rewards_rate or 0,
         min_payment=request.parsed_card.min_payment or 0,
+        user_id=user_id,
     )
     session.add(card)
     await session.flush()
@@ -232,6 +233,7 @@ async def confirm_card(request: ConfirmCardRequest, session: DatabaseSession):
         action=f"Confirmed and created credit card: {card.bank_name} {card.card_name}",
         details={"card_id": card.id, "bank_name": card.bank_name},
         duration_ms=0,
+        user_id=user_id,
     )
     session.add(activity)
 
@@ -256,7 +258,7 @@ async def confirm_card(request: ConfirmCardRequest, session: DatabaseSession):
 
 
 @router.post("/confirm-loan")
-async def confirm_loan(request: ConfirmLoanRequest, session: DatabaseSession):
+async def confirm_loan(request: ConfirmLoanRequest, session: DatabaseSession, user_id: RequiredUserId):
     loan = Loan(
         loan_type=request.parsed_loan.loan_type or "Personal Loan",
         bank_name=request.parsed_loan.bank_name or "",
@@ -268,6 +270,7 @@ async def confirm_loan(request: ConfirmLoanRequest, session: DatabaseSession):
         remaining_months=request.parsed_loan.remaining_months or request.parsed_loan.tenure_months or 12,
         start_date=request.parsed_loan.start_date or date.today().isoformat(),
         payment_method=request.parsed_loan.payment_method or "Auto-debit",
+        user_id=user_id,
     )
     session.add(loan)
     await session.flush()
@@ -279,6 +282,7 @@ async def confirm_loan(request: ConfirmLoanRequest, session: DatabaseSession):
         action=f"Confirmed and created loan: {loan.loan_type} from {loan.bank_name}",
         details={"loan_id": loan.id, "bank_name": loan.bank_name},
         duration_ms=0,
+        user_id=user_id,
     )
     session.add(activity)
 
@@ -303,7 +307,7 @@ async def confirm_loan(request: ConfirmLoanRequest, session: DatabaseSession):
 
 
 @router.post("/update")
-async def update_entity(request: UpdateEntityRequest, session: DatabaseSession):
+async def update_entity(request: UpdateEntityRequest, session: DatabaseSession, user_id: RequiredUserId):
     entity_type_map = {
         "credit_card": CreditCard,
         "loan": Loan,
@@ -318,7 +322,7 @@ async def update_entity(request: UpdateEntityRequest, session: DatabaseSession):
         )
 
     query_result = await session.execute(
-        select(model_class).where(model_class.id == request.entity_id)
+        select(model_class).where(model_class.id == request.entity_id, model_class.user_id == user_id)
     )
     entity = query_result.scalar_one_or_none()
     if not entity:
@@ -340,6 +344,7 @@ async def update_entity(request: UpdateEntityRequest, session: DatabaseSession):
         action=f"Updated {request.entity_type} {request.entity_id}: {list(request.updates.keys())}",
         details={"entity_type": request.entity_type, "entity_id": request.entity_id, "updates": request.updates},
         duration_ms=0,
+        user_id=user_id,
     )
     session.add(activity)
 
@@ -347,11 +352,13 @@ async def update_entity(request: UpdateEntityRequest, session: DatabaseSession):
 
 
 @router.post("/analyze")
-async def analyze_finances(session: DatabaseSession):
+async def analyze_finances(session: DatabaseSession, user_id: RequiredUserId):
     start_time = time.perf_counter()
     results = {}
 
-    budgets_result = await session.execute(select(Budget))
+    budgets_result = await session.execute(
+        select(Budget).where(Budget.user_id == user_id)
+    )
     budgets = budgets_result.scalars().all()
     budget_data = [
         {
@@ -362,7 +369,9 @@ async def analyze_finances(session: DatabaseSession):
         for b in budgets
     ]
 
-    expenses_result = await session.execute(select(Expense))
+    expenses_result = await session.execute(
+        select(Expense).where(Expense.user_id == user_id)
+    )
     expenses = expenses_result.scalars().all()
     expense_data = [
         {
@@ -381,11 +390,13 @@ async def analyze_finances(session: DatabaseSession):
     total_expenses = sum(e["amount"] for e in expense_data)
     category_breakdown = {}
     for expense in expense_data:
-        category = expense["category"]
-        category_breakdown[category] = category_breakdown.get(category, 0) + expense["amount"]
+        cat = expense["category"]
+        category_breakdown[cat] = category_breakdown.get(cat, 0) + expense["amount"]
 
     from app.models import UserSettings as _UserSettings
-    us_result = await session.execute(select(_UserSettings))
+    us_result = await session.execute(
+        select(_UserSettings).where(_UserSettings.user_id == user_id)
+    )
     user_settings = us_result.scalar_one_or_none()
     monthly_income_value = float(user_settings.monthly_income) if user_settings else 0
 
@@ -394,7 +405,7 @@ async def analyze_finances(session: DatabaseSession):
         "total_income": monthly_income_value,
         "budgets": budget_data,
         "category_breakdown": [
-            {"name": category, "value": value} for category, value in category_breakdown.items()
+            {"name": cat, "value": value} for cat, value in category_breakdown.items()
         ],
     }
 
@@ -420,15 +431,15 @@ async def analyze_finances(session: DatabaseSession):
             action=action,
             details=results.get(result_key, {}),
             duration_ms=total_duration_ms // 3,
+            user_id=user_id,
         )
         session.add(activity)
 
     return results
 
 
-# Separate advisory endpoint — uses the shared LLM directly for financial advisory, no expense logging
 @router.post("/guru")
-async def guru_chat(request: ChatRequest, session: DatabaseSession):
+async def guru_chat(request: ChatRequest, session: DatabaseSession, user_id: RequiredUserId):
     import asyncio as _asyncio
     import time as _time
     from langchain_core.messages import SystemMessage, HumanMessage
@@ -458,7 +469,6 @@ async def guru_chat(request: ChatRequest, session: DatabaseSession):
         except Exception as error:
             logger.warning("guru_llm_failed", error=str(error))
 
-    # Fallback when LLM is unavailable — honest offline response
     if not reply_content:
         reply_content = (
             "The financial advisor is temporarily unavailable (LLM offline). "
@@ -474,6 +484,7 @@ async def guru_chat(request: ChatRequest, session: DatabaseSession):
         action=f"Answered advisory query ({'LLM' if used_llm else 'fallback'})",
         details={"query": request.message[:200], "used_llm": used_llm},
         duration_ms=duration_ms,
+        user_id=user_id,
     )
     session.add(activity)
 

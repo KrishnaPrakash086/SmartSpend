@@ -1,10 +1,9 @@
-from collections import defaultdict
 from datetime import date, timedelta
 
 from fastapi import APIRouter
 from sqlalchemy import func, select
 
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.models import Budget, CreditCard, Expense, Loan, UserSettings
 from app.schemas import ReportResponse
 from app.services import report_service
@@ -13,19 +12,20 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 @router.get("/", response_model=ReportResponse)
-async def get_report_data(session: DatabaseSession):
-    settings_result = await session.execute(select(UserSettings))
+async def get_report_data(session: DatabaseSession, user_id: RequiredUserId):
+    settings_result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id)
+    )
     settings_row = settings_result.scalar_one_or_none()
 
     report_data = await report_service.generate_report_data(
-        session, settings_row
+        session, settings_row, user_id
     )
     return ReportResponse(**report_data)
 
 
 @router.get("/payment-methods")
-async def payment_method_breakdown(session: DatabaseSession):
-    """Aggregate expenses by payment method for the current month."""
+async def payment_method_breakdown(session: DatabaseSession, user_id: RequiredUserId):
     start_of_month = date.today().replace(day=1)
 
     query = (
@@ -33,7 +33,7 @@ async def payment_method_breakdown(session: DatabaseSession):
             Expense.payment_method.label("method"),
             func.coalesce(func.sum(Expense.amount), 0).label("total"),
         )
-        .where(Expense.date >= start_of_month)
+        .where(Expense.date >= start_of_month, Expense.user_id == user_id)
         .group_by(Expense.payment_method)
     )
     result = await session.execute(query)
@@ -58,9 +58,10 @@ async def payment_method_breakdown(session: DatabaseSession):
 
 
 @router.get("/loans-summary")
-async def loans_summary(session: DatabaseSession):
-    """Return loan data formatted for the Reports page."""
-    result = await session.execute(select(Loan))
+async def loans_summary(session: DatabaseSession, user_id: RequiredUserId):
+    result = await session.execute(
+        select(Loan).where(Loan.user_id == user_id)
+    )
     loans = result.scalars().all()
     return [
         {
@@ -76,12 +77,12 @@ async def loans_summary(session: DatabaseSession):
 
 
 @router.get("/smart-actions")
-async def smart_actions(session: DatabaseSession):
-    """Generate intelligent action recommendations based on actual DB data."""
+async def smart_actions(session: DatabaseSession, user_id: RequiredUserId):
     actions: list[dict] = []
 
-    # Check each budget for overspend or near-limit
-    budgets_result = await session.execute(select(Budget))
+    budgets_result = await session.execute(
+        select(Budget).where(Budget.user_id == user_id)
+    )
     budgets = budgets_result.scalars().all()
     for budget in budgets:
         limit = float(budget.limit_amount)
@@ -105,8 +106,9 @@ async def smart_actions(session: DatabaseSession):
                 "priority": "medium",
             })
 
-    # Check for high-interest loans
-    loans_result = await session.execute(select(Loan))
+    loans_result = await session.execute(
+        select(Loan).where(Loan.user_id == user_id)
+    )
     loans = loans_result.scalars().all()
     if loans:
         highest_rate_loan = max(loans, key=lambda l: float(l.interest_rate))
@@ -119,8 +121,9 @@ async def smart_actions(session: DatabaseSession):
                 "priority": "high",
             })
 
-    # Check credit card utilization
-    cards_result = await session.execute(select(CreditCard))
+    cards_result = await session.execute(
+        select(CreditCard).where(CreditCard.user_id == user_id)
+    )
     cards = cards_result.scalars().all()
     total_limit = sum(float(c.credit_limit) for c in cards)
     total_used = sum(float(c.used_amount) for c in cards)
@@ -134,11 +137,10 @@ async def smart_actions(session: DatabaseSession):
                 "priority": "medium" if utilization < 60 else "high",
             })
 
-    # Check savings opportunity: monthly expense total
     thirty_days_ago = date.today() - timedelta(days=30)
     month_spend_result = await session.execute(
         select(func.coalesce(func.sum(Expense.amount), 0))
-        .where(Expense.date >= thirty_days_ago)
+        .where(Expense.date >= thirty_days_ago, Expense.user_id == user_id)
     )
     month_total = float(month_spend_result.scalar() or 0)
 

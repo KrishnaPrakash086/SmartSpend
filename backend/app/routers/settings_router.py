@@ -1,8 +1,7 @@
-# User settings endpoints with auto-creation of default row on first access
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.models import UserSettings
 from app.schemas import UserSettingsResponse, UserSettingsUpdate
 
@@ -10,13 +9,14 @@ router = APIRouter(prefix="/settings", tags=["Settings"])
 
 
 @router.get("/", response_model=UserSettingsResponse)
-async def get_settings(session: DatabaseSession):
-    result = await session.execute(select(UserSettings))
+async def get_settings(session: DatabaseSession, user_id: RequiredUserId):
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id)
+    )
     settings = result.scalar_one_or_none()
 
-    # Auto-create default settings row if none exists (single-tenant assumption)
     if not settings:
-        settings = UserSettings()
+        settings = UserSettings(user_id=user_id)
         session.add(settings)
         await session.flush()
         await session.refresh(settings)
@@ -26,20 +26,21 @@ async def get_settings(session: DatabaseSession):
 
 @router.patch("/", response_model=UserSettingsResponse)
 async def update_settings(
-    data: UserSettingsUpdate, session: DatabaseSession
+    data: UserSettingsUpdate, session: DatabaseSession, user_id: RequiredUserId
 ):
-    result = await session.execute(select(UserSettings))
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == user_id)
+    )
     settings = result.scalar_one_or_none()
 
     if not settings:
-        settings = UserSettings()
+        settings = UserSettings(user_id=user_id)
         session.add(settings)
         await session.flush()
         await session.refresh(settings)
 
     update_fields = data.model_dump(exclude_unset=True)
 
-    # Unpack nested notification preferences into flat notify_* columns on the ORM model
     if "notifications" in update_fields:
         notification_prefs = update_fields.pop("notifications")
         if notification_prefs is not None:

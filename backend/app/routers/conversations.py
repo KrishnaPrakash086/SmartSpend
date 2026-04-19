@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.models import Conversation
 from app.schemas.conversation import ConversationCreate, ConversationResponse
 
@@ -23,9 +23,11 @@ def _serialize(conversation: Conversation) -> ConversationResponse:
 
 @router.get("/", response_model=list[ConversationResponse])
 async def list_conversations(
-    session: DatabaseSession, mode: str | None = None
+    session: DatabaseSession, user_id: RequiredUserId, mode: str | None = None
 ):
-    query = select(Conversation).order_by(Conversation.updated_at.desc())
+    query = select(Conversation).where(
+        Conversation.user_id == user_id
+    ).order_by(Conversation.updated_at.desc())
     if mode and mode.lower() != "all":
         query = query.where(Conversation.mode == mode.lower())
     result = await session.execute(query)
@@ -35,9 +37,8 @@ async def list_conversations(
 @router.post(
     "/", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED
 )
-async def save_conversation(data: ConversationCreate, session: DatabaseSession):
+async def save_conversation(data: ConversationCreate, session: DatabaseSession, user_id: RequiredUserId):
     messages_as_dicts = [m.model_dump() for m in data.messages]
-    # Auto-generate title from first user message if default
     derived_title = data.title
     if derived_title == "Untitled" and messages_as_dicts:
         first_user_message = next(
@@ -54,6 +55,7 @@ async def save_conversation(data: ConversationCreate, session: DatabaseSession):
         messages=messages_as_dicts,
         message_count=len(messages_as_dicts),
         summary=data.summary,
+        user_id=user_id,
     )
     session.add(conversation)
     await session.flush()
@@ -62,9 +64,11 @@ async def save_conversation(data: ConversationCreate, session: DatabaseSession):
 
 
 @router.get("/{conversation_id}", response_model=ConversationResponse)
-async def get_conversation(conversation_id: str, session: DatabaseSession):
+async def get_conversation(conversation_id: str, session: DatabaseSession, user_id: RequiredUserId):
     result = await session.execute(
-        select(Conversation).where(Conversation.id == conversation_id)
+        select(Conversation).where(
+            Conversation.id == conversation_id, Conversation.user_id == user_id
+        )
     )
     conversation = result.scalar_one_or_none()
     if not conversation:
@@ -75,9 +79,11 @@ async def get_conversation(conversation_id: str, session: DatabaseSession):
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(conversation_id: str, session: DatabaseSession):
+async def delete_conversation(conversation_id: str, session: DatabaseSession, user_id: RequiredUserId):
     result = await session.execute(
-        select(Conversation).where(Conversation.id == conversation_id)
+        select(Conversation).where(
+            Conversation.id == conversation_id, Conversation.user_id == user_id
+        )
     )
     conversation = result.scalar_one_or_none()
     if not conversation:

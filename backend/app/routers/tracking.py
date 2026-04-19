@@ -1,10 +1,9 @@
-# Read-only endpoints for agent activity logs, voice interaction history, and webhook events
 from typing import Optional
 
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from app.dependencies import DatabaseSession
+from app.dependencies import DatabaseSession, RequiredUserId
 from app.models import AgentActivity, VoiceInteraction, WebhookEvent
 from app.schemas import (
     AgentActivityResponse,
@@ -21,9 +20,9 @@ def _serialize_datetime(dt) -> str:
 
 @router.get("/agents", response_model=list[AgentActivityResponse])
 async def list_agent_activities(
-    session: DatabaseSession, type: Optional[str] = None
+    session: DatabaseSession, user_id: RequiredUserId, type: Optional[str] = None
 ):
-    query = select(AgentActivity)
+    query = select(AgentActivity).where(AgentActivity.user_id == user_id)
     if type and type != "All":
         query = query.where(AgentActivity.agent_type == type)
     query = query.order_by(AgentActivity.created_at.desc())
@@ -46,10 +45,10 @@ async def list_agent_activities(
 
 
 @router.get("/voice", response_model=list[VoiceInteractionResponse])
-async def list_voice_interactions(session: DatabaseSession):
-    query = select(VoiceInteraction).order_by(
-        VoiceInteraction.created_at.desc()
-    )
+async def list_voice_interactions(session: DatabaseSession, user_id: RequiredUserId):
+    query = select(VoiceInteraction).where(
+        VoiceInteraction.user_id == user_id
+    ).order_by(VoiceInteraction.created_at.desc())
     result = await session.execute(query)
     interactions = result.scalars().all()
 
@@ -68,7 +67,7 @@ async def list_voice_interactions(session: DatabaseSession):
 
 
 @router.get("/webhooks", response_model=list[WebhookEventResponse])
-async def list_webhook_events(session: DatabaseSession):
+async def list_webhook_events(session: DatabaseSession, user_id: RequiredUserId):
     query = select(WebhookEvent).order_by(WebhookEvent.created_at.desc())
     result = await session.execute(query)
     events = result.scalars().all()

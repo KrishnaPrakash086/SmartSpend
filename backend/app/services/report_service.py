@@ -1,4 +1,3 @@
-# Report data aggregation service — monthly summaries, category breakdowns, and spending trends
 from collections import defaultdict
 from datetime import date
 
@@ -9,7 +8,6 @@ from app.models import Category, Expense, UserSettings
 from app.schemas import CategoryBreakdown, MonthlySummary
 
 
-# Rolling 6-month window anchored to the 1st of the target month for consistent trend charts
 def _compute_six_months_start() -> date:
     today = date.today()
     target_month = today.month - 5
@@ -21,12 +19,11 @@ def _compute_six_months_start() -> date:
 
 
 async def generate_report_data(
-    session: AsyncSession, settings_row: UserSettings | None
+    session: AsyncSession, settings_row: UserSettings | None, user_id: str
 ) -> dict:
     monthly_income = float(settings_row.monthly_income) if settings_row else 0
     six_months_start = _compute_six_months_start()
 
-    # PostgreSQL-specific to_char used for month formatting; not portable to SQLite
     month_key_expression = func.to_char(Expense.date, "YYYY-MM")
     month_label_expression = func.to_char(Expense.date, "Mon")
 
@@ -36,7 +33,7 @@ async def generate_report_data(
             month_label_expression.label("month_label"),
             func.coalesce(func.sum(Expense.amount), 0).label("total_amount"),
         )
-        .where(Expense.date >= six_months_start)
+        .where(Expense.date >= six_months_start, Expense.user_id == user_id)
         .group_by(month_key_expression, month_label_expression)
         .order_by(month_key_expression)
     )
@@ -62,7 +59,7 @@ async def generate_report_data(
             Expense.category,
             func.coalesce(func.sum(Expense.amount), 0).label("total_amount"),
         )
-        .where(Expense.date >= six_months_start)
+        .where(Expense.date >= six_months_start, Expense.user_id == user_id)
         .group_by(month_key_expression, month_label_expression, Expense.category)
         .order_by(month_key_expression)
     )
@@ -87,13 +84,15 @@ async def generate_report_data(
             Expense.category,
             func.coalesce(func.sum(Expense.amount), 0).label("total_amount"),
         )
-        .where(Expense.date >= current_month_start)
+        .where(Expense.date >= current_month_start, Expense.user_id == user_id)
         .group_by(Expense.category)
     )
     categories_result = await session.execute(categories_query)
     categories_rows = categories_result.all()
 
-    color_result = await session.execute(select(Category.name, Category.color))
+    color_result = await session.execute(
+        select(Category.name, Category.color).where(Category.user_id == user_id)
+    )
     color_map = {row.name: row.color for row in color_result.all()}
 
     category_breakdowns = [
