@@ -5,10 +5,12 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
+import { isAuthenticated, getUser, clearAuth, AuthUser } from "@/lib/auth";
 import { setCurrency } from "@/lib/format";
 import { API_BASE_URL } from "@/config/env";
 import { AppLayout } from "@/components/layout/AppLayout";
+import AuthPage from "./pages/AuthPage";
 import Dashboard from "./pages/Dashboard";
 import Budgets from "./pages/Budgets";
 import Reports from "./pages/Reports";
@@ -19,24 +21,37 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-// Provider order matters: Theme wraps everything, QueryClient must precede data-fetching pages
 const App = () => {
-  // Load saved currency from backend once at app start so every page renders with the correct symbol
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [checking, setChecking] = useState(true);
+
   useEffect(() => {
-    (async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/settings/`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.currency) setCurrency(data.currency);
-        }
-      } catch { /* keep default INR if backend offline */ }
-    })();
+    if (isAuthenticated()) {
+      const stored = getUser();
+      if (stored) {
+        setUser(stored);
+        setCurrency(stored.preferred_currency || "INR");
+      } else {
+        clearAuth();
+      }
+    }
+    setChecking(false);
   }, []);
+
+  if (checking) return null;
+
+  if (!user) {
+    return (
+      <ThemeProvider>
+        <Toaster />
+        <Sonner />
+        <AuthPage onAuth={setUser} />
+      </ThemeProvider>
+    );
+  }
 
   return (
   <ThemeProvider>
-    {/* QueryClient enables server-state caching and sync across all pages */}
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />

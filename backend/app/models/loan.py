@@ -23,3 +23,4 @@ class Loan(Base):
     remaining_months: Mapped[int] = mapped_column(Integer, nullable=False)
     start_date: Mapped[str] = mapped_column(String(10), nullable=False)
     payment_method: Mapped[str] = mapped_column(String(30), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

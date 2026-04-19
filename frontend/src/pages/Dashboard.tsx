@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/config/api";
+import { authFetch } from "@/lib/auth";
 import {
   getFinancialSummary, getCreditCardSummary, getLoanSummary, getHealthAnalysis,
   getCreditCards, getLoans, generateFinancialFlags,
@@ -333,7 +334,7 @@ export default function Dashboard() {
           timestamp: new Date().toISOString(),
         })),
       };
-      const response = await fetch(`${API_BASE_URL}/conversations/`, {
+      const response = await authFetch(`${API_BASE_URL}/conversations/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -403,7 +404,7 @@ export default function Dashboard() {
 
     try {
       const endpoint = guruMode ? `${API_BASE_URL}/chat/guru` : `${API_BASE_URL}/chat/`;
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg, source, context_id: contextId }),
@@ -546,7 +547,7 @@ export default function Dashboard() {
 
     // POST to backend first — server is the source of truth, we use its ID for the local store to avoid duplicates
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/confirm`, {
+      const response = await authFetch(`${API_BASE_URL}/chat/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -596,7 +597,7 @@ export default function Dashboard() {
     );
 
     try {
-      await fetch(`${API_BASE_URL}/chat/confirm-card`, {
+      await authFetch(`${API_BASE_URL}/chat/confirm-card`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -619,7 +620,7 @@ export default function Dashboard() {
     );
 
     try {
-      await fetch(`${API_BASE_URL}/chat/confirm-loan`, {
+      await authFetch(`${API_BASE_URL}/chat/confirm-loan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -921,7 +922,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-6">
           {!hasMessages && (
@@ -1113,7 +1114,7 @@ export default function Dashboard() {
                           <button
                             onClick={async () => {
                               try {
-                                const response = await fetch(`${API_BASE_URL}/chat/confirm-bulk`, {
+                                const response = await authFetch(`${API_BASE_URL}/chat/confirm-bulk`, {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({ expenses: msg.a2uiData.expenses }),

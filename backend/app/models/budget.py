@@ -14,8 +14,9 @@ class Budget(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    category: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
     limit_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     spent_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

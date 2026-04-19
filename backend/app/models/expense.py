@@ -26,6 +26,7 @@ class Expense(Base):
     # Split transactions share a group_id — the total across the group equals the original amount
     group_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     group_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

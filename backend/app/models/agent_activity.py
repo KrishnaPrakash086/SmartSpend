@@ -21,6 +21,7 @@ class AgentActivity(Base):
     action: Mapped[str] = mapped_column(Text, nullable=False)
     details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/config/api";
+import { authFetch } from "@/lib/auth";
 
 const severityStyles: Record<string, { bg: string; border: string; icon: typeof AlertTriangle; color: string }> = {
   critical: { bg: "bg-destructive/10", border: "border-l-destructive", icon: XCircle, color: "text-destructive" },
@@ -81,8 +82,8 @@ export default function Finances() {
     (async () => {
       try {
         const [cardsRes, loansRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/financial/credit-cards`),
-          fetch(`${API_BASE_URL}/financial/loans`),
+          authFetch(`${API_BASE_URL}/financial/credit-cards`),
+          authFetch(`${API_BASE_URL}/financial/loans`),
         ]);
         const serverCards = cardsRes.ok ? await cardsRes.json() : [];
         const serverLoans = loansRes.ok ? await loansRes.json() : [];
@@ -139,7 +140,7 @@ export default function Finances() {
     if (editingCardId) {
       updateCreditCard(editingCardId, cardData);
       try {
-        await fetch(`${API_BASE_URL}/financial/credit-cards/${editingCardId}`, {
+        await authFetch(`${API_BASE_URL}/financial/credit-cards/${editingCardId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(cardData),
@@ -149,7 +150,7 @@ export default function Finances() {
     } else {
       addCreditCard(cardData);
       try {
-        const response = await fetch(`${API_BASE_URL}/financial/credit-cards`, {
+        const response = await authFetch(`${API_BASE_URL}/financial/credit-cards`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(cardData),
@@ -172,7 +173,7 @@ export default function Finances() {
     setDeleteCardId(null);
     removeCreditCard(idToDelete);
     try {
-      const response = await fetch(`${API_BASE_URL}/financial/credit-cards/${idToDelete}`, {
+      const response = await authFetch(`${API_BASE_URL}/financial/credit-cards/${idToDelete}`, {
         method: "DELETE",
       });
       if (!response.ok && response.status !== 204) throw new Error("Delete failed");
@@ -223,7 +224,7 @@ export default function Finances() {
     if (editingLoanId) {
       updateLoan(editingLoanId, loanData);
       try {
-        await fetch(`${API_BASE_URL}/financial/loans/${editingLoanId}`, {
+        await authFetch(`${API_BASE_URL}/financial/loans/${editingLoanId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(loanData),
@@ -233,7 +234,7 @@ export default function Finances() {
     } else {
       addLoan(loanData);
       try {
-        const response = await fetch(`${API_BASE_URL}/financial/loans`, {
+        const response = await authFetch(`${API_BASE_URL}/financial/loans`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(loanData),
@@ -256,7 +257,7 @@ export default function Finances() {
     setDeleteLoanId(null);
     removeLoan(idToDelete);
     try {
-      const response = await fetch(`${API_BASE_URL}/financial/loans/${idToDelete}`, {
+      const response = await authFetch(`${API_BASE_URL}/financial/loans/${idToDelete}`, {
         method: "DELETE",
       });
       if (!response.ok && response.status !== 204) throw new Error("Delete failed");

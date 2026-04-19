@@ -8,13 +8,14 @@ import { CATEGORIES } from "@/data/dummy";
 import { Trash2, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/config/api";
+import { authFetch } from "@/lib/auth";
 import { setCurrency } from "@/lib/format";
 import type { UserSettings, Category } from "@/types";
 
 // Persist any settings change to the backend immediately
 async function persistSettings(patch: Partial<UserSettings & { notifications?: Record<string, boolean> }>) {
   try {
-    await fetch(`${API_BASE_URL}/settings/`, {
+    await authFetch(`${API_BASE_URL}/settings/`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -25,23 +26,65 @@ async function persistSettings(patch: Partial<UserSettings & { notifications?: R
 }
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<UserSettings>({
-    currency: "USD", monthly_income: 8450, budget_cycle_start: 1,
-    notifications: { budget_exceeded: true, weekly_summary: true, voice_confirmations: true, ai_insights: false },
-    voice_enabled: true, language: "English",
+  const [settings, setSettings] = useState<UserSettings>(() => {
+    try {
+      const user = JSON.parse(localStorage.getItem("smartspend_user") || "{}");
+      return {
+        currency: user.preferred_currency || "INR",
+        monthly_income: user.monthly_income || 0,
+        budget_cycle_start: 1,
+        notifications: { budget_exceeded: true, weekly_summary: true, voice_confirmations: true, ai_insights: false },
+        voice_enabled: true, language: "English",
+      };
+    } catch {
+      return {
+        currency: "INR", monthly_income: 0, budget_cycle_start: 1,
+        notifications: { budget_exceeded: true, weekly_summary: true, voice_confirmations: true, ai_insights: false },
+        voice_enabled: true, language: "English",
+      };
+    }
   });
   const [categories, setCategories] = useState<Category[]>([]);
   const [newCatName, setNewCatName] = useState("");
   const [addingCat, setAddingCat] = useState(false);
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords don't match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+    try {
+      const response = await authFetch(`${API_BASE_URL}/auth/change-password`, {
+        method: "POST",
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, confirm_password: confirmPassword }),
+      });
+      if (response.ok) {
+        toast.success("Password changed successfully");
+        setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.detail || "Failed to change password");
+      }
+    } catch {
+      toast.error("Failed to change password — check your connection");
+    }
+  };
   // Load settings + categories from backend on mount
   useEffect(() => {
     (async () => {
       try {
         const [settingsRes, categoriesRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/settings/`),
-          fetch(`${API_BASE_URL}/categories/`),
+          authFetch(`${API_BASE_URL}/settings/`),
+          authFetch(`${API_BASE_URL}/categories/`),
         ]);
         if (settingsRes.ok) {
           const data = await settingsRes.json();
@@ -88,7 +131,7 @@ export default function SettingsPage() {
     setCategories(prev => [...prev, optimisticCat]);
     setNewCatName(""); setAddingCat(false);
     try {
-      await fetch(`${API_BASE_URL}/categories/`, {
+      await authFetch(`${API_BASE_URL}/categories/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: optimisticCat.name, color: optimisticCat.color, icon: optimisticCat.icon }),
       });
@@ -104,7 +147,7 @@ export default function SettingsPage() {
     setCategories(prev => prev.map(c => c.id === editingCatId ? { ...c, name: newName } : c));
     setEditingCatId(null); setEditingCatName("");
     try {
-      await fetch(`${API_BASE_URL}/categories/${cat.id}`, {
+      await authFetch(`${API_BASE_URL}/categories/${cat.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName, color: cat.color, icon: cat.icon }),
@@ -116,7 +159,7 @@ export default function SettingsPage() {
   const deleteCategory = async (catId: string) => {
     setCategories(prev => prev.filter(c => c.id !== catId));
     try {
-      await fetch(`${API_BASE_URL}/categories/${catId}`, { method: "DELETE" });
+      await authFetch(`${API_BASE_URL}/categories/${catId}`, { method: "DELETE" });
     } catch { /* offline */ }
     toast.success("Category removed");
   };
@@ -154,6 +197,28 @@ export default function SettingsPage() {
           </div>
         </div>
         <Button size="sm" onClick={savePreferences}>Save Preferences</Button>
+      </div>
+
+      {/* Password */}
+      <div className="bg-card rounded-xl p-6 space-y-4 border border-border/50">
+        <h2 className="text-base font-semibold text-foreground">Change Password</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Current Password</label>
+            <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="mt-1" placeholder="Enter current password" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">New Password</label>
+            <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="mt-1" placeholder="At least 6 characters" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Confirm New Password</label>
+            <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="mt-1" placeholder="Repeat new password" />
+          </div>
+        </div>
+        <Button size="sm" onClick={handleChangePassword} disabled={!currentPassword || !newPassword || !confirmPassword}>
+          Update Password
+        </Button>
       </div>
 
       {/* Notifications — each toggle persists immediately */}

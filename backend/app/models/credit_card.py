@@ -24,3 +24,4 @@ class CreditCard(Base):
     apr: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     rewards_rate: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0)
     min_payment: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

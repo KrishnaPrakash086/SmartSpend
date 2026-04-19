@@ -25,3 +25,4 @@ class UserSettings(Base):
 
     voice_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     language: Mapped[str] = mapped_column(String(20), nullable=False, default="English")
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

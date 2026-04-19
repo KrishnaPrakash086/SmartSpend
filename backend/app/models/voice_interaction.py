@@ -22,6 +22,7 @@ class VoiceInteraction(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="processing")
     result_description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     expense_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

@@ -20,6 +20,7 @@ class Conversation(Base):
     messages: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     message_count: Mapped[int] = mapped_column(default=0, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

@@ -11,6 +11,7 @@ import { formatCurrency } from "@/lib/format";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/config/api";
+import { authFetch } from "@/lib/auth";
 
 const periods = ["This Month", "Last 3 Months", "Last 6 Months", "This Year"];
 const categoryColors: Record<string, string> = {
@@ -52,10 +53,10 @@ export default function Reports() {
     (async () => {
       try {
         const [reports, payments, loans, actions] = await Promise.all([
-          fetch(`${API_BASE_URL}/reports/`).then(r => r.ok ? r.json() : null),
-          fetch(`${API_BASE_URL}/reports/payment-methods`).then(r => r.ok ? r.json() : []),
-          fetch(`${API_BASE_URL}/reports/loans-summary`).then(r => r.ok ? r.json() : []),
-          fetch(`${API_BASE_URL}/reports/smart-actions`).then(r => r.ok ? r.json() : []),
+          authFetch(`${API_BASE_URL}/reports/`).then(r => r.ok ? r.json() : null),
+          authFetch(`${API_BASE_URL}/reports/payment-methods`).then(r => r.ok ? r.json() : []),
+          authFetch(`${API_BASE_URL}/reports/loans-summary`).then(r => r.ok ? r.json() : []),
+          authFetch(`${API_BASE_URL}/reports/smart-actions`).then(r => r.ok ? r.json() : []),
         ]);
         if (reports) {
           setMonthlyData(reports.monthly || []);
@@ -82,7 +83,7 @@ export default function Reports() {
   const generateAiReport = async () => {
     setGenerating(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/analyze`, {
+      const response = await authFetch(`${API_BASE_URL}/chat/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ period }),
@@ -281,6 +282,14 @@ export default function Reports() {
           )}
         </div>
       </div>
+
+      {/* Empty state for new users with no expense data */}
+      {monthlyData.length === 0 && categoryData.length === 0 && (
+        <div className="bg-card rounded-xl border border-border/50 p-8 text-center">
+          <p className="text-sm text-muted-foreground">No expense data yet.</p>
+          <p className="text-xs text-muted-foreground mt-1">Start logging expenses from the Assistant to see your charts and reports here.</p>
+        </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

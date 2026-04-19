@@ -45,12 +45,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_methods=["*"],
+    allow_headers=["*"],
     max_age=3600,
 )
 
+logger.info("cors_configured", origins=settings.allowed_origins)
+
 # Late imports avoid circular dependencies; each router is mounted under /api/v1 except SSE
+from app.routers.auth import router as auth_router
 from app.routers.expenses import router as expenses_router
 from app.routers.budgets import router as budgets_router
 from app.routers.financial import router as financial_router
@@ -63,6 +66,7 @@ from app.routers.vapi import router as vapi_router
 from app.routers.conversations import router as conversations_router
 from app.events.sse import router as sse_router
 
+app.include_router(auth_router, prefix="/api/v1")
 app.include_router(expenses_router, prefix="/api/v1")
 app.include_router(budgets_router, prefix="/api/v1")
 app.include_router(financial_router, prefix="/api/v1")

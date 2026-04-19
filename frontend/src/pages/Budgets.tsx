@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useChartTheme } from "@/hooks/useChartTheme";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/config/api";
+import { authFetch } from "@/lib/auth";
 import type { Budget } from "@/types";
 
 const catColors: Record<string, string> = {
@@ -34,7 +35,7 @@ export default function Budgets() {
   useEffect(() => {
     (async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/budgets/`);
+        const response = await authFetch(`${API_BASE_URL}/budgets/`);
         if (response.ok) {
           const serverBudgets = await response.json();
           if (serverBudgets.length > 0) setBudgets(serverBudgets);
@@ -60,7 +61,7 @@ export default function Budgets() {
     setBudgets(prev => prev.map(b => b.id === editBudget.id ? { ...b, limit_amount: newLimit } : b));
 
     try {
-      await fetch(`${API_BASE_URL}/budgets/${editBudget.id}`, {
+      await authFetch(`${API_BASE_URL}/budgets/${editBudget.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ limit_amount: newLimit }),
