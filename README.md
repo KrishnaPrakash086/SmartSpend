@@ -4,6 +4,13 @@
 SmartSpend is a multi-user personal finance management application that combines structured transactional data with conversational AI. Users sign up, log expenses, manage budgets, track credit cards and loans, and consult a financial advisor — all through a unified chat-first interface backed by a relational database, JWT authentication, and a multi-agent AI pipeline.
 
 
+
+## 🎬 Demo
+
+<p align="center">
+  <img src="images/demo.gif" width="80%" />
+</p>
+
 ---
 
 ## 🏗️ Modules
